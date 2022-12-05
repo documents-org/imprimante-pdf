@@ -9,12 +9,12 @@ const dotenv = require('dotenv').config();
  * We found this hinting mode to be the most reliable
  * when working with client fonts.
  */
- async function boot() {
+async function boot() {
   const browser = await puppeteer.launch({
     args: [
-    "--no-proxy-server",
-    "--no-sandbox",
-    "--font-render-hinting=none"],
+      "--no-proxy-server",
+      "--no-sandbox",
+      "--font-render-hinting=none"],
     pipe: true
   });
   return browser;
@@ -24,7 +24,7 @@ const dotenv = require('dotenv').config();
  * Returns a simple Koa instance, with koa-qs injected.
  * On the app instance lies our puppeteer instance.
  */
- async function launch() {
+async function launch() {
   const app = new Koa();
   qs(app, "first");
   app.context.chrome = await boot();
@@ -34,7 +34,7 @@ const dotenv = require('dotenv').config();
 /**
  * Helpers to reject, return a successful PDF, an auth failure.
  */
- const reject = (response, message) => {
+const reject = (response, message) => {
   response.type = 'text/plain';
   response.body = message;
   response.status = 400;
@@ -46,6 +46,12 @@ const printed = (response, pdf) => {
   response.status = 201;
 }
 
+const rendered = (response, htmlOutput) => {
+  response.type = 'text/html';
+  response.body = htmlOutput;
+  response.status = 200;
+}
+
 const unauthorized = (response, message) => {
   response.type = 'text/plain';
   response.body = message;
@@ -55,7 +61,7 @@ const unauthorized = (response, message) => {
 /**
  * Docs.
  */
- const doc = `
+const doc = `
  Our only route.
  Accepts a GET request with the form
  http(s?)://service-url?
@@ -69,47 +75,58 @@ const unauthorized = (response, message) => {
  &token={token:string?} optional : if you'd like to compare against a PRINTSERVER_TOKEN env var.
  `;
 
- launch().then((app) => { app.use(async ({ request, response }) => {
-  if (process.env.PRINTSERVER_TOKEN) {
-    if (!request.query.token || request.query.token !== process.env.PRINTSERVER_TOKEN) {
-      return unauthorized(response, `Unauthorized.`);
+launch().then((app) => {
+  app.use(async ({ request, response }) => {
+    if (process.env.PRINTSERVER_TOKEN) {
+      if (!request.query.token || request.query.token !== process.env.PRINTSERVER_TOKEN) {
+        return unauthorized(response, `Unauthorized.`);
+      }
     }
-  }
-  if (!request.query.url) {
-    return reject(response, `Bad request, \n ${doc}`);
-  }
-  const page = await app.context.chrome.newPage();
-  const u = Buffer.from(request.query.url, "base64").toString("binary");
-  await page.setViewport({ width: 1440, height: 900 });
+    if (!request.query.url) {
+      return reject(response, `Bad request, \n ${doc}`);
+    }
+    let outputMode = 'pdf';
+    if (request.query.output) {
+      outputMode = request.query.output === 'pdf' ? 'pdf' : 'html';
+    }
 
-  // Wait until all network activity is idle.
-  // This should be changed if you expect ads or do not control the target page.
-  await page.goto(u, { waitUntil: 'networkidle0' });
+    const page = await app.context.chrome.newPage();
+    const u = Buffer.from(request.query.url, "base64").toString("binary");
+    await page.setViewport({ width: 1440, height: 900 });
 
-  let params = {
-    format: "A4",
-    landscape: false,
-    printBackground: true,
-    pageRanges: "1"
-  };
+    // Wait until all network activity is idle.
+    // This should be changed if you expect ads or do not control the target page.
+    await page.goto(u, { waitUntil: 'networkidle0' });
+    console.log('networkIdle');
+    if (outputMode === 'pdf') {
+      let params = {
+        format: "A4",
+        landscape: false,
+        printBackground: true,
+        pageRanges: "1"
+      };
 
-  if (request.query.format) {
-    params.format = request.query.format;
-  } else {
-    params.width = request.query.width;
-    params.height = request.query.height;
-  }
+      if (request.query.format) {
+        params.format = request.query.format;
+      } else {
+        params.width = request.query.width;
+        params.height = request.query.height;
+      }
 
-  if (request.query.range) {
-    params.pageRanges = request.query.range;
-  }
+      if (request.query.range) {
+        params.pageRanges = request.query.range;
+      }
 
-  params.landscape = request.query.orientation && request.query.orientation === 'landscape';
-  params.printBackground = request.query.background && !!parseInt(request.query.background, 10);
-  return printed(response, await page.pdf(params))
-});
- const port = process.env.PRINTSERVER_PORT || 3468;
- app.listen(port);
+      params.landscape = request.query.orientation && request.query.orientation === 'landscape';
+      params.printBackground = request.query.background && !!parseInt(request.query.background, 10);
+      return printed(response, await page.pdf(params))
+    } else {
+      const html = await page.content();
+      return rendered(response, html);
+    }
+  });
 
- console.log(`Listening on port ${port}`);
+  const port = process.env.PRINTSERVER_PORT || 3468;
+  app.listen(port);
+  console.log(`Listening on port ${port}`);
 });

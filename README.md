@@ -14,6 +14,7 @@ Les requêtes acceptent ces options :
 Accepts a GET request with the form
 http(s?)://service-url?
 url={url:base64 string} the URL to render, as a base64 string.
+&output={'pdf'|'html'}
 &format={format:string} a paper format. Defaults to "A4".
 &range={range:range} the page range to print. Defaults to printing only the first page.
 &orientation={orientation:string} either "portrait" or "landscape", defaults to being portrait.
